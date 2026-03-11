@@ -131,6 +131,31 @@ public class FoodQuickSlot : MonoBehaviour
         if (logDebug) Debug.Log($"[QuickSlot] Equipped to hand: {heldItem.displayName} x{heldAmount}/{heldMax}");
     }
 
+
+    public bool TryTakeFromHand(int amount, out ItemDefinitionSO itemTaken, out int amountTaken)
+    {
+        itemTaken = null;
+        amountTaken = 0;
+
+        if (HandEmpty || amount <= 0) return false;
+
+        int actual = Mathf.Min(amount, heldAmount);
+        itemTaken = heldItem;
+        amountTaken = actual;
+
+        heldAmount -= actual;
+        if (heldAmount <= 0)
+        {
+            heldItem = null;
+            heldAmount = 0;
+            heldMax = 0;
+        }
+
+        if (logDebug)
+            Debug.Log($"[QuickSlot] Took from hand: {itemTaken.displayName} x{amountTaken}");
+
+        return true;
+    }
     public bool TryConsumeFromHand(int amount)
     {
         if (HandEmpty || amount <= 0) return false;

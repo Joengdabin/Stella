@@ -5,29 +5,34 @@ public class PlayerItemDropper : MonoBehaviour
 {
     [Header("Refs")]
     [SerializeField] private InventoryComponent inventory;
+    [SerializeField] private FoodQuickSlot quickSlot;
 
     [Header("Drop Prefab")]
-    [Tooltip("DroppedPickup.prefab ³Ö±â (PickupItemWorld Æ÷ÇÔ)")]
+    [Tooltip("DroppedPickup.prefab ì—°ê²° (PickupItemWorld í•„ìš”)")]
     [SerializeField] private GameObject dropPickupPrefab;
 
-    [Header("Drop Tuning (Inspector only)")]
+    [Header("Drop Tuning (Default)")]
     [SerializeField] private int dropItemCountMin = 1;
     [SerializeField] private int dropItemCountMax = 3;
 
-    [Tooltip("°¢ ¾ÆÀÌÅÛ¿¡¼­ ¸î °³¸¦ ¶³±¼Áö(±âº» ¸ÔÀÌµµ Æ÷ÇÔ). º¸Åë 1 ÃßÃµ")]
+    [Header("Drop Tuning (Low Monster)")]
+    [SerializeField] private int lowMonsterDropItemCountMin = 0;
+    [SerializeField] private int lowMonsterDropItemCountMax = 1;
+
+    [Tooltip("ê° ë“œë ì‹œë„ì—ì„œ ì œê±°í•  ìˆ˜ëŸ‰ (ê¸°ë³¸ 1 ì¶”ì²œ)")]
     [SerializeField] private int dropAmountPerItem = 1;
 
-    [Tooltip("ÇÃ·¹ÀÌ¾î ÁÖº¯ µå¶ø Èğ»Ñ¸®±â ¹İ°æ")]
+    [Tooltip("í”Œë ˆì´ì–´ ì£¼ë³€ìœ¼ë¡œ í©ë¿Œë¦´ ë°˜ê²½")]
     [SerializeField] private float scatterRadius = 1.5f;
 
-    [Tooltip("µå¶øµÉ ¶§ À§·Î »ìÂ¦ Æ¢´Â Èû")]
+    [Tooltip("ë“œë ì•„ì´í…œ ìœ„ìª½ ì„í„ìŠ¤")]
     [SerializeField] private float tossUpForce = 2.5f;
 
-    [Tooltip("µå¶øµÉ ¶§ ¿·À¸·Î Æ¢´Â Èû")]
+    [Tooltip("ë“œë ì•„ì´í…œ ì˜†ìª½ ì„í„ìŠ¤")]
     [SerializeField] private float tossSideForce = 2.0f;
 
     [Header("Rules")]
-    [Tooltip("doesNotConsumeInventorySlot ¾ÆÀÌÅÛ(¿¹: ±ÍÈ¯¼®)Àº µå¶øÇÏÁö ¾Ê±â")]
+    [Tooltip("doesNotConsumeInventorySlot ì•„ì´í…œ(ì˜ˆ: ê·€í™˜ì„)ì€ ë“œë ì œì™¸")]
     [SerializeField] private bool neverDropNoSlotItems = true;
 
     [Header("Debug")]
@@ -36,38 +41,76 @@ public class PlayerItemDropper : MonoBehaviour
     void Awake()
     {
         if (!inventory) inventory = GetComponent<InventoryComponent>();
+        if (!quickSlot) quickSlot = GetComponent<FoodQuickSlot>();
     }
 
     public void DropOnHit(int seed = -1)
     {
+        DropOnHitRange(dropItemCountMin, dropItemCountMax, seed);
+    }
+
+    public void DropOnHitLowTier(int seed = -1)
+    {
+        DropOnHitRange(lowMonsterDropItemCountMin, lowMonsterDropItemCountMax, seed);
+    }
+
+    void DropOnHitRange(int minCount, int maxCount, int seed)
+    {
         if (!inventory || !dropPickupPrefab) return;
 
-        int slotCount = inventory.SlotCount();
-        if (slotCount <= 0) return;
+        int minV = Mathf.Max(0, minCount);
+        int maxV = Mathf.Max(minV, maxCount);
 
-        int dropCount = Random.Range(dropItemCountMin, dropItemCountMax + 1);
-        dropCount = Mathf.Clamp(dropCount, 1, 999);
+        if (seed >= 0)
+            Random.InitState(seed);
 
-        // ½½·ÔÀÌ ÁÙ¾îµå¹Ç·Î, ¹İº¹¸¶´Ù slotCount °»½Å
+        int dropCount = Random.Range(minV, maxV + 1);
+        if (dropCount <= 0) return;
+
         for (int i = 0; i < dropCount; i++)
         {
-            int currentSlots = inventory.SlotCount();
-            if (currentSlots <= 0) break;
-
-            int idx = Random.Range(0, currentSlots);
-            var (it, amt) = inventory.GetSlot(idx);
-            if (it == null || amt <= 0) continue;
-
-            if (neverDropNoSlotItems && it.doesNotConsumeInventorySlot)
+            if (TryDropFromHandFirst())
                 continue;
 
-            int removeAmt = Mathf.Min(dropAmountPerItem, amt);
-
-            if (!inventory.TryRemoveFromSlot(idx, removeAmt, out var removedItem, out var removedAmount))
-                continue;
-
-            SpawnDroppedPickup(removedItem, removedAmount);
+            TryDropFromInventory();
         }
+    }
+
+    bool TryDropFromHandFirst()
+    {
+        if (quickSlot == null) return false;
+        if (quickSlot.HandEmpty) return false;
+
+        if (!quickSlot.TryTakeFromHand(dropAmountPerItem, out var item, out var amount))
+            return false;
+
+        if (item == null || amount <= 0) return false;
+
+        SpawnDroppedPickup(item, amount);
+        if (logDrop) Debug.Log($"[Drop] From hand: {item.displayName} x{amount}");
+        return true;
+    }
+
+    bool TryDropFromInventory()
+    {
+        int currentSlots = inventory.SlotCount();
+        if (currentSlots <= 0) return false;
+
+        int idx = Random.Range(0, currentSlots);
+        var (it, amt) = inventory.GetSlot(idx);
+        if (it == null || amt <= 0) return false;
+
+        if (neverDropNoSlotItems && it.doesNotConsumeInventorySlot)
+            return false;
+
+        int removeAmt = Mathf.Min(dropAmountPerItem, amt);
+
+        if (!inventory.TryRemoveFromSlot(idx, removeAmt, out var removedItem, out var removedAmount))
+            return false;
+
+        SpawnDroppedPickup(removedItem, removedAmount);
+        if (logDrop) Debug.Log($"[Drop] From inventory: {removedItem.displayName} x{removedAmount}");
+        return true;
     }
 
     void SpawnDroppedPickup(ItemDefinitionSO item, int amount)
@@ -78,20 +121,15 @@ public class PlayerItemDropper : MonoBehaviour
 
         GameObject go = Instantiate(dropPickupPrefab, pos, Quaternion.identity);
 
-        // ·±Å¸ÀÓ ¼¼ÆÃ
         var pickup = go.GetComponent<PickupItemWorld>();
         if (pickup != null)
             pickup.Configure(item, amount);
 
-        // Æ¢´Â Èû
         var rb = go.GetComponent<Rigidbody>();
         if (rb != null)
         {
             Vector3 side = new Vector3(rnd.x, 0f, rnd.y).normalized;
             rb.AddForce(Vector3.up * tossUpForce + side * tossSideForce, ForceMode.Impulse);
         }
-
-        if (logDrop)
-            Debug.Log($"[Drop] {item.displayName} x{amount}");
     }
 }
